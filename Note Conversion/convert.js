@@ -3,9 +3,20 @@ const path = require("path");
 const mammoth = require("mammoth");
 const cheerio = require("cheerio");
 const { JSDOM } = require("jsdom");
+const puppeteer = require("puppeteer");
+
+function getRandomColor() {
+  const letters = "0123456789ABCDEF";
+  let color = "#";
+  for (let i = 0; i < 6; i++) {
+    color += letters[Math.floor(Math.random() * 16)];
+  }
+  return color;
+}
 
 function readLocalDocxToHtml(filePath) {
-  return mammoth.convertToHtml({ path: filePath })
+  return mammoth
+    .convertToHtml({ path: filePath })
     .then((result) => {
       const html = result.value;
       console.log("Extracted HTML:", html);
@@ -22,95 +33,155 @@ function groupContentByConcepts(htmlContent) {
 
   const $ = cheerio.load(htmlContent);
 
-  $("li").each((index, listItem) => {
-    const $listItem = $(listItem);
-    const isConcept = $listItem.parent().is("ol");
-    
-    if (isConcept) {
-      const conceptContent = $listItem.html();
-      const conceptItems = [];
-
-      $listItem.find("li").each((itemIndex, subListItem) => {
-        conceptItems.push($(subListItem).html());
+  // grab outer OL tag
+  const ol = $("ol")[0];
+  ol.children.forEach((child) => {
+    // handle these concepts
+    let parts = $(child).prop("innerHTML").split("<ol>");
+    // Each child is a list item
+    // Grab the text of the first list item only as that is the concept title
+    // Loop through and turn all of the nested list items into p tags
+    // Add the concept to the concepts array
+    const concept = {
+      title: parts[0].replace("\t", ""),
+      items: [],
+    };
+    $(child)
+      .find("li")
+      .each((index, listItem) => {
+        // Check if listItem.parent is in concept.items
+        // If it is replace the text from the parent with the text from the child with empte string
+        // If it is not add the text from the child to the concept.items array
+        const parent = $(listItem).parents("li")[0];
+        const parentText = $(parent).text();
+        const childText = $(listItem).text();
+        if (concept.items.includes(parentText)) {
+          concept.items.push(childText);
+          concept.items = concept.items.filter((item) => item !== parentText);
+        } else {
+          concept.items.push(childText);
+        }
       });
-
-      concepts.push({ content: conceptContent, items: conceptItems });
-    }
+    concepts.push(concept);
   });
 
   return concepts;
 }
 
-const filePath = "/Users/samuelhale/Downloads/Intro To NLP.docx";
+const filePath = "C:/Users/wizar/Downloads/Intro To Senior Design.docx";
 
-readLocalDocxToHtml(filePath)
-  .then((htmlContent) => {
-    console.log("Vanilla HTML:", htmlContent);
+(async () => {
+  const htmlContent = await readLocalDocxToHtml(filePath);
+  console.log("Vanilla HTML:", htmlContent);
 
-    const concepts = groupContentByConcepts(htmlContent);
+  const concepts = groupContentByConcepts(htmlContent);
 
-    const dom = new JSDOM(htmlContent);
-    const document = dom.window.document;
+  const browser = await puppeteer.launch();
+  const page = await browser.newPage();
 
-    const style = document.createElement("style");
-    style.innerHTML = `
-      .container {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-      }
-      .concept {
-        border: 1px solid #333;
-        padding: 10px;
-        margin-bottom: 20px;
-      }
-      .concept h2 {
-        background-color: #333;
-        color: #fff;
-        padding: 10px;
-        margin-bottom: 10px;
-      }
-    `;
-    document.head.appendChild(style);
+  const dom = new JSDOM(htmlContent);
+  const document = dom.window.document;
 
-    const container = document.createElement("div");
-    container.className = "container";
-    document.body.innerHTML = "";
-    document.body.appendChild(container);
+  const $ = cheerio.load(htmlContent);
 
-    concepts.forEach((concept) => {
-      const conceptDiv = document.createElement("div");
-      conceptDiv.className = "concept";
+  $("head").append(`
+    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500&display=swap" rel="stylesheet">
+  `);
 
-      const title = document.createElement("h2");
-      title.innerHTML = cheerio.load(concept.content).text();
-      title.style.backgroundColor = "#333";
-      title.style.color = "#fff";
-      title.style.padding = "10px";
-      title.style.marginBottom = "10px";
-      conceptDiv.appendChild(title);
+  const style = document.createElement("style");
+  style.innerHTML = `
+  h1 {
+    color: #fff;
+    font-weight: 500;
+    font-family: 'Oswald', sans-serif;
+    text-align: center;
+  }
+  body {
+    background-color: #333;
+  }
+  .container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .concept {
+    border: 1px solid #333;
+    padding: 20px;
+    margin-bottom: 20px;
+    background-color: #f0f0f0;
+    text-align: center;
+    border-radius: 5px;
+    max-width: 800px;
+  }
+  .concept h2 {
+    margin: 0;
+    padding: 10px;
+    background-color: #333;
+    color: #fff;
+    font-weight: 500;
+    font-family: 'Oswald', sans-serif;
+  }
+  .items-container {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .item {
+    margin: 5px;
+    border: 1px solid #ccc;
+    padding: 10px;
+    background-color: #fff;
+    color: #333;
+    font-weight: 400;
+    font-family: 'Poppins', sans-serif;
+  }
+  `;
+  document.head.appendChild(style);
 
-      concept.items.forEach((item) => {
-        const itemParagraph = document.createElement("p");
-        itemParagraph.innerHTML = cheerio.load(item).text();
-        conceptDiv.appendChild(itemParagraph);
-      });
+  document.body.innerHTML = "";
+  let queryVariable = cheerio.load(htmlContent);
+  const title = document.createElement("h1");
+  title.innerHTML = queryVariable("p").prop("innerHTML");
+  document.body.appendChild(title);
 
-      container.appendChild(conceptDiv);
+  const container = document.createElement("div");
+  container.className = "container";
+  document.body.appendChild(container);
+
+  concepts.forEach((concept) => {
+    const conceptDiv = document.createElement("div");
+    conceptDiv.className = "concept";
+    conceptDiv.style.backgroundColor = getRandomColor();
+
+    const title = document.createElement("h2");
+    title.innerHTML = cheerio.load(concept.title).text();
+    conceptDiv.appendChild(title);
+
+    const itemsContainer = document.createElement("div");
+    itemsContainer.className = "items-container";
+
+    concept.items.forEach((item) => {
+      const itemDiv = document.createElement("div");
+      itemDiv.className = "item";
+      itemDiv.innerHTML = cheerio.load(item).text();
+      itemsContainer.appendChild(itemDiv);
     });
 
-    const modifiedHtml = document.documentElement.outerHTML;
-
-    const fileNameWithoutExtension = path.parse(filePath).name;
-    const outputFilePath = fileNameWithoutExtension + ".html";
-    fs.writeFile(outputFilePath, modifiedHtml, (err) => {
-      if (err) {
-        console.error("Error writing HTML file:", err);
-      } else {
-        console.log("Modified HTML written to:", outputFilePath);
-      }
-    });
-  })
-  .catch((err) => {
-    console.error(err);
+    conceptDiv.appendChild(itemsContainer);
+    container.appendChild(conceptDiv);
   });
+
+  await page.setContent(document.documentElement.outerHTML);
+
+  const pdfOptions = {
+    path: filePath.replace(".docx", ".pdf"), // Output PDF file path
+    format: "A4", // Paper format
+    printBackground: true, // Make background transparent
+  };
+  await page.pdf(pdfOptions);
+
+  await browser.close();
+})().catch((err) => {
+  console.error(err);
+});
