@@ -29,60 +29,53 @@ function readLocalDocxToHtml(filePath) {
 }
 
 function groupContentByConcepts(htmlContent) {
-  const concepts = [];
-
   const $ = cheerio.load(htmlContent);
 
-  // grab outer OL tag
-  const ol = $("ol")[0];
-  ol.children.forEach((child) => {
-    // handle these concepts
-    let parts = $(child).prop("innerHTML").split("<ol>");
-    // Each child is a list item
-    // Grab the text of the first list item only as that is the concept title
-    // Loop through and turn all of the nested list items into p tags
-    // Add the concept to the concepts array
-    const concept = {
-      title: parts[0].replace("\t", ""),
-      items: [],
-    };
-    $(child)
-      .find("li")
-      .each((index, listItem) => {
-        // Check if listItem.parent is in concept.items
-        // If it is replace the text from the parent with the text from the child with empte string
-        // If it is not add the text from the child to the concept.items array
-        const parent = $(listItem).parents("li")[0];
-        const parentText = $(parent).text();
-        const childText = $(listItem).text();
-        if (concept.items.includes(parentText)) {
-          concept.items.push(childText);
-          concept.items = concept.items.filter((item) => item !== parentText);
-        } else {
-          concept.items.push(childText);
-        }
-      });
-    concepts.push(concept);
+  // Add the .container class to the outermost ol
+  $("ol").first().addClass("container");
+
+  // Add the .concept class to the first li elements directly under the first ol
+  $("ol.container > li").each(function () {
+    // Generate a random background color using the getRandomColor function
+    const conceptBackgroundColor = getRandomColor();
+
+    $(this).addClass("concept");
+
+    // Set the background color for the concept div
+    $(this).css("background-color", conceptBackgroundColor);
+
+    // Add h2 for the concept title
+    const conceptTitle = $(this).contents().first().text();
+    // remove the concept title from the li element
+    $(this).contents().first().remove();
+    $(this).prepend(`<h2>${conceptTitle}</h2>`);
+
+    // Wrap the nested ol in a div with the .items-container class
+    $(this).find("> ol").wrap("<div class='items-container'></div>");
+
+    // Add the .item class to the li elements under the nested ol
+    $(this).find(".items-container ol li").addClass("item");
   });
 
-  return concepts;
+  return $.html();
 }
 
-const filePath = "C:/Users/wizar/Downloads/Intro To Senior Design.docx";
+const filePath = "/Users/samuelhale/Downloads/Untitled document.docx";
 
 (async () => {
   const htmlContent = await readLocalDocxToHtml(filePath);
   console.log("Vanilla HTML:", htmlContent);
 
-  const concepts = groupContentByConcepts(htmlContent);
+  const styledHtmlContent = groupContentByConcepts(htmlContent);
+  console.log("Styled HTML:", styledHtmlContent);
 
   const browser = await puppeteer.launch();
   const page = await browser.newPage();
 
-  const dom = new JSDOM(htmlContent);
+  const dom = new JSDOM(styledHtmlContent);
   const document = dom.window.document;
 
-  const $ = cheerio.load(htmlContent);
+  const $ = cheerio.load(styledHtmlContent);
 
   $("head").append(`
     <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500&display=swap" rel="stylesheet">
@@ -90,7 +83,14 @@ const filePath = "C:/Users/wizar/Downloads/Intro To Senior Design.docx";
   `);
 
   const style = document.createElement("style");
+  // Add Oswald to p tag and center it make it white and large as it is the header 1 of the page
   style.innerHTML = `
+  p {
+    font-family: 'Oswald', sans-serif;
+    text-align: center;
+    color: #fff;
+    font-size: 30px; 
+  }
   h1 {
     color: #fff;
     font-weight: 500;
@@ -136,41 +136,28 @@ const filePath = "C:/Users/wizar/Downloads/Intro To Senior Design.docx";
     font-weight: 400;
     font-family: 'Poppins', sans-serif;
   }
+  li {
+    list-style: none;
+  }
+  ol {
+    padding: 0;
+  }
   `;
   document.head.appendChild(style);
 
-  document.body.innerHTML = "";
-  let queryVariable = cheerio.load(htmlContent);
+  let queryVariable = cheerio.load(styledHtmlContent);
   const title = document.createElement("h1");
   title.innerHTML = queryVariable("p").prop("innerHTML");
-  document.body.appendChild(title);
+  // place the title at the top of the body
+  // remove document .body.firstChild
+  document.body.firstChild.remove();
+  document.body.insertBefore(title, document.body.firstChild);
 
   const container = document.createElement("div");
   container.className = "container";
   document.body.appendChild(container);
 
-  concepts.forEach((concept) => {
-    const conceptDiv = document.createElement("div");
-    conceptDiv.className = "concept";
-    conceptDiv.style.backgroundColor = getRandomColor();
-
-    const title = document.createElement("h2");
-    title.innerHTML = cheerio.load(concept.title).text();
-    conceptDiv.appendChild(title);
-
-    const itemsContainer = document.createElement("div");
-    itemsContainer.className = "items-container";
-
-    concept.items.forEach((item) => {
-      const itemDiv = document.createElement("div");
-      itemDiv.className = "item";
-      itemDiv.innerHTML = cheerio.load(item).text();
-      itemsContainer.appendChild(itemDiv);
-    });
-
-    conceptDiv.appendChild(itemsContainer);
-    container.appendChild(conceptDiv);
-  });
+  console.log("Styled HTML:", document.documentElement.outerHTML)
 
   await page.setContent(document.documentElement.outerHTML);
 
